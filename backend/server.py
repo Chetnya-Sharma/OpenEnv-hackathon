@@ -7,8 +7,8 @@ import sys
 import os
 from pathlib import Path
 
-# Add sql_review_env to Python path so we can import server modules
-sys.path.insert(0, str(Path(__file__).parent.parent / "sql_review_env"))
+# Add project root to Python path for sql_review_env imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -17,10 +17,10 @@ from starlette.middleware.cors import CORSMiddleware
 import logging
 import traceback
 
-from server.env import SQLReviewEnv
-from server.models import SQLAction
-from server.tasks import get_task_definitions
-from server.data import get_all_queries
+from sql_review_env.server.env import SQLReviewEnv
+from sql_review_env.server.models import SQLAction
+from sql_review_env.server.tasks import get_task_definitions
+from sql_review_env.server.data import get_all_queries
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
