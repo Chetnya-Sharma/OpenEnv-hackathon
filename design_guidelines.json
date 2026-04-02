@@ -1,0 +1,103 @@
+{
+  "theme": "light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "design_philosophy": "Objective, rigid, and functional. A 'Control Room' for data engineers. Pure structural grayscale with color used exclusively for functional state (approve/reject/score). No generic SaaS shadows. Heavy reliance on visible grid lines and stark typography.",
+  "typography": {
+    "fonts": {
+      "headings": "Chivo",
+      "body": "IBM Plex Sans",
+      "mono": "JetBrains Mono"
+    },
+    "scale": {
+      "h1": "text-4xl font-black tracking-tighter uppercase",
+      "h2": "text-2xl font-bold tracking-tight",
+      "h3": "text-lg font-bold tracking-tight",
+      "body": "text-sm leading-relaxed",
+      "code": "font-mono text-sm leading-relaxed",
+      "overline": "text-xs font-bold uppercase tracking-[0.2em]"
+    },
+    "rules": "Never center-align data or headings unless it's an explicit numeric metric block. Use tracking-tight for all headings."
+  },
+  "colors": {
+    "backgrounds": {
+      "page": "#FFFFFF",
+      "surface": "#F4F4F5",
+      "code_block": "#FAFAFA"
+    },
+    "text": {
+      "primary": "#09090B",
+      "secondary": "#52525B",
+      "muted": "#A1A1AA"
+    },
+    "borders": {
+      "default": "#E4E4E7",
+      "focus": "#09090B"
+    },
+    "actions": {
+      "primary": "#002FA7",
+      "approve": "#00C853",
+      "reject": "#FF2A00",
+      "request_changes": "#FF8C00",
+      "skip": "#71717A"
+    }
+  },
+  "spacing_and_layout": {
+    "grid_system": "The 'Control Room' Grid (Mode B). Dense, functional, scanning-optimized.",
+    "layout_structure": "grid-cols-1 md:grid-cols-12 gap-0 border-collapse. Everything fits tightly like a terminal window.",
+    "surfaces": "Grid Borders (The 'Technical' Look). Sharp edges (rounded-none). Containers use border-r and border-b to create a contiguous grid. No drop shadows.",
+    "padding": "Generous internal padding for breathing room despite dense borders (p-6 to p-8 inside panels)."
+  },
+  "components": {
+    "buttons": {
+      "style": "rounded-none border border-black px-6 py-2 text-sm font-bold uppercase tracking-widest transition-colors",
+      "primary": "bg-black text-white hover:bg-black/80 hover:text-white",
+      "secondary": "bg-white text-black hover:bg-gray-100"
+    },
+    "cards": {
+      "style": "border border-border bg-white rounded-none shadow-none p-6 flex flex-col gap-4"
+    },
+    "code_viewer": {
+      "style": "font-mono text-sm bg-gray-50 border border-border p-6 overflow-x-auto selection:bg-black selection:text-white",
+      "syntax_highlighting": "Light theme. Use JetBrains Mono."
+    },
+    "badges": {
+      "style": "rounded-none border border-black px-2 py-1 text-xs font-bold uppercase"
+    }
+  },
+  "interactions_and_motion": {
+    "hover": "Instant or very fast transitions (duration-150). No bouncy physics. Hover states should invert colors or sharply darken backgrounds.",
+    "focus": "High contrast focus rings. focus:ring-2 focus:ring-black focus:ring-offset-2 focus:outline-none.",
+    "active": "Press states should use scale-y-95 or translate-y-px."
+  },
+  "accessibility": {
+    "contrast": "APCA-compliant. Black on white, or stark brand colors on white.",
+    "motion": "Respect prefers-reduced-motion.",
+    "testing_attributes": "MANDATORY: Use data-testid on every interactive element. Kebab-case (e.g., data-testid='select-task-easy', data-testid='btn-approve')."
+  },
+  "media_and_assets": {
+    "icons": {
+      "library": "@phosphor-icons/react",
+      "style": "Use 'regular' or 'bold' weight to match the stark typography. Avoid rounded icon variants."
+    },
+    "image_urls": [],
+    "notes": "No placeholder images. This is a technical IDE-like dashboard, pure data and text."
+  },
+  "component_path": {
+    "dashboard_layout": "/app/frontend/src/components/layout/DashboardLayout.jsx",
+    "query_viewer": "/app/frontend/src/components/review/QueryViewer.jsx",
+    "action_panel": "/app/frontend/src/components/review/ActionPanel.jsx",
+    "stats_panel": "/app/frontend/src/components/dashboard/StatsPanel.jsx",
+    "task_selector": "/app/frontend/src/components/dashboard/TaskSelector.jsx"
+  },
+  "instructions_to_main_agent": [
+    "1. Initialize React with Tailwind CSS and Shadcn UI (using purely .js/.jsx, NO TypeScript).",
+    "2. Install required fonts (Chivo, IBM Plex Sans, JetBrains Mono) via Google Fonts in index.css.",
+    "3. Install @phosphor-icons/react for iconography.",
+    "4. Strip all Shadcn components of rounded corners (replace rounded-md/lg with rounded-none). Remove all box-shadows.",
+    "5. Build a dense, IDE-like layout using CSS Grid where panels are delineated purely by 1px solid borders (no gaps).",
+    "6. Ensure all state changes (Approve, Reject) reflect immediately in the 'Session History' and 'Reward/Score' blocks.",
+    "7. Implement syntax highlighting for the SQL Query Viewer (e.g., using prismjs or react-syntax-highlighter).",
+    "8. MANDATORY: Attach data-testid to every button, form input, and key statistic display.",
+    "9. Keep color to an absolute minimum. Use color ONLY to signify status (Green = Approve, Red = Reject/Error). Backgrounds must remain stark white or light gray."
+  ]
+}

@@ -1,0 +1,69 @@
+name: sql-review-env
+version: "1.0.0"
+description: "AI agent environment for SQL query review, security auditing, and performance optimization — real-world data engineering task"
+author: "your-hf-username"
+license: "MIT"
+tags:
+  - openenv
+  - sql
+  - code-review
+  - security
+  - data-engineering
+tasks:
+  - id: single_review
+    name: "Single Query Review"
+    difficulty: easy
+    max_steps: 5
+    description: "Review one SQL query for correctness, security, and performance"
+  - id: batch_review
+    name: "Batch Query Review"
+    difficulty: medium
+    max_steps: 25
+    description: "Review 8 mixed SQL queries across all issue types"
+  - id: pipeline_review
+    name: "Production Pipeline Review"
+    difficulty: hard
+    max_steps: 50
+    description: "Review 15 queries with prioritization, urgent flags, and strict penalties"
+action_space:
+  type: object
+  required: [action_type, query_id]
+  properties:
+    action_type:
+      type: string
+      enum: [review, approve, reject, request_changes, skip]
+    query_id:
+      type: string
+    verdict:
+      type: string
+      enum: [approve, reject]
+    issues_found:
+      type: array
+      items:
+        type: string
+        enum: [sql_injection, performance, logic_bug, missing_index, n_plus_one, no_issues]
+    suggested_fix:
+      type: string
+    confidence:
+      type: number
+      minimum: 0.0
+      maximum: 1.0
+observation_space:
+  type: object
+  properties:
+    queries:
+      type: array
+    current_step:
+      type: integer
+    task_id:
+      type: string
+    reviewed_count:
+      type: integer
+    pending_count:
+      type: integer
+    last_action_result:
+      type: string
+    session_stats:
+      type: object
+    done:
+      type: boolean
