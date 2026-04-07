@@ -57,6 +57,23 @@ TASK_ID_MAP = {
 
 # ── Endpoints ─────────────────────────────────────────────────────
 
+@app.get("/")
+async def root():
+    """Root endpoint — HF Spaces pings this for liveness."""
+    return {
+        "name": "SQL Review Environment",
+        "version": "1.0.0",
+        "status": "ok",
+        "endpoints": {
+            "health": "GET /health",
+            "reset": "POST /reset",
+            "step": "POST /step",
+            "state": "GET /state",
+            "tasks": "GET /tasks",
+        },
+    }
+
+
 @app.get("/health")
 async def health():
     """Liveness check — judges ping this for 200 response."""
