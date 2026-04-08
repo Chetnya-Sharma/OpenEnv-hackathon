@@ -201,3 +201,9 @@ async def list_tasks_get():
             status_code=200,
             content={"error": str(e)}
         )
+
+
+def run():
+    """Entry point for `server` script defined in pyproject.toml."""
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860, workers=1)
