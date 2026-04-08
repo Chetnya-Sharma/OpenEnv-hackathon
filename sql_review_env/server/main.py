@@ -46,8 +46,33 @@ app_state = AppState()
 class ResetRequest(BaseModel):
     task_id: Optional[str] = "single_review"
 
+TASK_ID_MAP = {
+    "easy": "single_review",
+    "single_review": "single_review",
+    "medium": "batch_review",
+    "batch_review": "batch_review",
+    "hard": "pipeline_review",
+    "pipeline_review": "pipeline_review",
+}
 
 # ── Endpoints ─────────────────────────────────────────────────────
+
+@app.get("/")
+async def root():
+    """Root endpoint — HF Spaces pings this for liveness."""
+    return {
+        "name": "SQL Review Environment",
+        "version": "1.0.0",
+        "status": "ok",
+        "endpoints": {
+            "health": "GET /health",
+            "reset": "POST /reset",
+            "step": "POST /step",
+            "state": "GET /state",
+            "tasks": "GET /tasks",
+        },
+    }
+
 
 @app.get("/health")
 async def health():
@@ -57,7 +82,7 @@ async def health():
 
 @app.post("/reset")
 async def reset(request: Request):
-    """Reset environment. Accepts optional task_id in body."""
+    """Reset environment. Accepts task_id in body JSON or query param."""
     try:
         body = {}
         try:
@@ -65,7 +90,13 @@ async def reset(request: Request):
         except Exception:
             pass  # Empty body is fine — use defaults
 
-        task_id = body.get("task_id", "single_review") if isinstance(body, dict) else "single_review"
+        # Support both JSON body and query params
+        task_id = body.get("task_id") if isinstance(body, dict) else None
+        if not task_id:
+            task_id = request.query_params.get("task_id", "single_review")
+
+        # Resolve aliases (easy/medium/hard) to real task IDs
+        task_id = TASK_ID_MAP.get(task_id, task_id)
 
         env = SQLReviewEnv(task_id=task_id)
         observation = env.reset()

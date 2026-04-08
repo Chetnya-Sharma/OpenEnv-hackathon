@@ -125,9 +125,9 @@ curl -X POST http://localhost:7860/tasks
 
 | Task | Score | Steps | Notes |
 |------|-------|-------|-------|
-| `single_review` | ~0.70 | 1-2 | Most LLMs detect obvious issues |
-| `batch_review` | ~0.55 | 8-15 | Requires consistent multi-query review |
-| `pipeline_review` | ~0.40 | 15-30 | Priority handling and fix quality are challenging |
+| `single_review` | ~0.87 | 1-2 | Most LLMs detect obvious issues |
+| `batch_review` | ~0.85 | 8-15 | Requires consistent multi-query review |
+| `pipeline_review` | ~0.83 | 15-30 | Priority handling and fix quality are challenging |
 
 ## Running the Baseline Inference
 
