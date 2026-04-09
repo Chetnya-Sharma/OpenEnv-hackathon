@@ -64,6 +64,9 @@ chainlit.md
 # Data and databases
 agenthub/agents/youtube/db
 
+.claude/
+.emergent/
+/Users/apple/Documents/Projects/OpenEnv-hackathon/.emergent
 # Archive files and large assets
 **/*.zip
 **/*.tar.gz
@@ -83,3 +86,4 @@ android-sdk/-e
 # Environment files
 *.env
 *.env.*
+
