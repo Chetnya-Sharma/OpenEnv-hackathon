@@ -98,3 +98,10 @@ test_reports/
 tests/
 backend_test.py
 
+# Root-level duplicates (submission is in sql_review_env/)
+/Dockerfile
+/inference.py
+/openenv.yaml
+/requirements.txt
+/server/
+
