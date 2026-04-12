@@ -57,6 +57,23 @@ TASK_ID_MAP = {
 
 # ── Endpoints ─────────────────────────────────────────────────────
 
+@app.get("/")
+async def root():
+    """Root endpoint — HF Spaces pings this for liveness."""
+    return {
+        "name": "SQL Review Environment",
+        "version": "1.0.0",
+        "status": "ok",
+        "endpoints": {
+            "health": "GET /health",
+            "reset": "POST /reset",
+            "step": "POST /step",
+            "state": "GET /state",
+            "tasks": "GET /tasks",
+        },
+    }
+
+
 @app.get("/health")
 async def health():
     """Liveness check — judges ping this for 200 response."""
@@ -184,3 +201,9 @@ async def list_tasks_get():
             status_code=200,
             content={"error": str(e)}
         )
+
+
+def run():
+    """Entry point for `server` script defined in pyproject.toml."""
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860, workers=1)

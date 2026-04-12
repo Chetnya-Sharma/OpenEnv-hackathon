@@ -148,6 +148,7 @@ async def run_task(task: dict) -> float:
     score = 0.0
     success = False
     history: List[str] = []
+    final_grade_score = None
 
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
 
@@ -168,6 +169,10 @@ async def run_task(task: dict) -> float:
                 reward = float(step_result.get("reward", 0.0))
                 done = bool(step_result.get("done", False))
                 error = step_result.get("info", {}).get("error")
+                # Capture grader score when episode ends
+                fg = step_result.get("info", {}).get("final_grade")
+                if fg and isinstance(fg, dict):
+                    final_grade_score = float(fg.get("value", 0.0))
             except Exception as e:
                 reward = 0.0
                 done = False
@@ -185,8 +190,12 @@ async def run_task(task: dict) -> float:
             if done:
                 break
 
-        score = sum(rewards) / max_reward if max_reward > 0 else 0.0
-        score = min(max(score, 0.0), 1.0)
+        # Use grader's final score if available, otherwise normalize step rewards
+        if final_grade_score is not None:
+            score = min(max(final_grade_score, 0.0), 1.0)
+        else:
+            score = sum(rewards) / max_reward if max_reward > 0 else 0.0
+            score = min(max(score, 0.0), 1.0)
         success = score >= 0.5
 
     except Exception as e:
