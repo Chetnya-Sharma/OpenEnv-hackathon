@@ -40,7 +40,12 @@ class SQLReviewEnv:
         self.session_stats = {"correct": 0, "wrong": 0, "skipped": 0, "total_reward": 0.0}
         self.last_action_result = "Environment initialized"
         self.done = False
-        self._batch_index = 0  # For pipeline_review batched delivery
+        self._batch_index = 0
+        # Info-gathering: track which queries have had context/schema revealed
+        self.revealed_context: set = set()
+        self.revealed_schema: set = set()
+        # Review history for observation
+        self.review_history: List[Dict] = []
 
     def reset(self) -> SQLObservation:
         """Full clean state reset. Returns initial observation."""
@@ -54,10 +59,18 @@ class SQLReviewEnv:
         self.last_action_result = "Environment reset. Begin reviewing queries."
         self.done = False
         self._batch_index = 0
+        self.revealed_context = set()
+        self.revealed_schema = set()
+        self.review_history = []
 
         # Load queries for this task
         query_list = get_queries_for_task(self.task_id)
         self.queries = {q.query_id: q for q in query_list}
+
+        # For easy task, context/schema are shown by default
+        if self.task_id == "single_review":
+            self.revealed_context = set(self.queries.keys())
+            self.revealed_schema = set(self.queries.keys())
 
         return self._get_observation()
 
@@ -80,7 +93,13 @@ class SQLReviewEnv:
 
         query = self.queries[action.query_id]
 
-        # Validate action_type
+        # Handle info-gathering actions
+        if action.action_type == "request_context":
+            return self._handle_info_request(action, query, "context", info)
+        elif action.action_type == "request_schema":
+            return self._handle_info_request(action, query, "schema", info)
+
+        # Validate review action_type
         valid_actions = {"review", "approve", "reject", "request_changes", "skip"}
         if action.action_type not in valid_actions:
             self.last_action_result = f"Invalid action type: {action.action_type}"
@@ -94,6 +113,7 @@ class SQLReviewEnv:
             "query_id": action.query_id,
             "action_type": action.action_type,
             "verdict": action.verdict,
+            "reasoning": action.reasoning,
         })
 
         # Compute step reward based on task
@@ -129,6 +149,14 @@ class SQLReviewEnv:
             else:
                 self.last_action_result = f"Action on {action.query_id}: {action.action_type} (no verdict)"
 
+            # Add to review history
+            self.review_history.append({
+                "query_id": action.query_id,
+                "verdict": verdict,
+                "issues_found": action.issues_found or [],
+                "step": self.current_step,
+            })
+
         # Check done
         self.done = self._check_done()
 
@@ -158,7 +186,46 @@ class SQLReviewEnv:
             "action_history": self.action_history,
             "session_stats": self.session_stats,
             "last_action_result": self.last_action_result,
+            "revealed_context": list(self.revealed_context),
+            "revealed_schema": list(self.revealed_schema),
         }
+
+    def _handle_info_request(self, action: SQLAction, query: SQLQuery, info_type: str, info: dict):
+        """Handle request_context or request_schema actions."""
+        if info_type == "context":
+            already = action.query_id in self.revealed_context
+            self.revealed_context.add(action.query_id)
+            if already:
+                self.last_action_result = f"Context for {action.query_id} was already revealed"
+                reward = -0.02  # Penalty for redundant request
+            else:
+                self.last_action_result = f"Context revealed for {action.query_id}: {query.context}"
+                # Reward if query has issues (useful investigation)
+                has_issues = query.has_injection_risk or query.has_performance_issue or query.has_logic_bug
+                reward = 0.03 if has_issues else 0.0
+        else:  # schema
+            already = action.query_id in self.revealed_schema
+            self.revealed_schema.add(action.query_id)
+            if already:
+                self.last_action_result = f"Schema for {action.query_id} was already revealed"
+                reward = -0.02
+            else:
+                self.last_action_result = f"Schema revealed for {action.query_id}: {query.schema_hint}"
+                has_issues = query.has_injection_risk or query.has_performance_issue or query.has_logic_bug
+                reward = 0.03 if has_issues else 0.0
+
+        self.session_stats["total_reward"] += reward
+        self.action_history.append({
+            "step": self.current_step,
+            "query_id": action.query_id,
+            "action_type": action.action_type,
+            "verdict": None,
+            "reasoning": None,
+        })
+
+        self.done = self._check_done()
+        info["step"] = self.current_step
+        return self._get_observation(), reward, self.done, info
 
     def _compute_reward(self, action: SQLAction, query: SQLQuery) -> float:
         """Compute dense per-step reward based on task type."""
@@ -203,6 +270,8 @@ class SQLReviewEnv:
                 submitted_by=q.submitted_by,
                 database=q.database,
                 query_type=q.query_type,
+                context=q.context if q.query_id in self.revealed_context else "",
+                schema_hint=q.schema_hint if q.query_id in self.revealed_schema else "",
                 is_urgent=q.is_urgent,
             )
             for q in visible_queries
@@ -216,13 +285,13 @@ class SQLReviewEnv:
             pending_count=len(self.queries) - len(self.reviewed_ids),
             last_action_result=self.last_action_result,
             session_stats=self.session_stats,
+            review_history=self.review_history,
             done=self.done,
         )
 
     def _get_pipeline_batch(self) -> List[SQLQuery]:
         """For pipeline_review: deliver queries in batches of 5."""
         all_q = list(self.queries.values())
-        batch_size = 5
         # Determine which batch to show based on reviewed count
         reviewed = len(self.reviewed_ids) + len(self.skipped_ids)
         if reviewed < 5:

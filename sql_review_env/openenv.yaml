@@ -1,6 +1,6 @@
 name: sql-review-env
-version: "1.0.0"
-description: "AI agent environment for SQL query review, security auditing, and performance optimization — real-world data engineering task"
+version: "1.1.0"
+description: "AI agent environment for SQL query review with security auditing, performance analysis, and adversarial edge cases — a real-world data engineering task"
 author: "Ranakun-7"
 license: "MIT"
 tags:
@@ -9,29 +9,30 @@ tags:
   - code-review
   - security
   - data-engineering
+  - adversarial
 tasks:
   - id: single_review
     name: "Single Query Review"
     difficulty: easy
     max_steps: 5
-    description: "Review one SQL query for correctness, security, and performance"
+    description: "Review one SQL query for correctness, security, and performance. Context and schema provided."
   - id: batch_review
     name: "Batch Query Review"
     difficulty: medium
     max_steps: 25
-    description: "Review 8 mixed SQL queries across all issue types"
+    description: "Review 8 mixed SQL queries including adversarial edge cases. Agent can request context/schema."
   - id: pipeline_review
     name: "Production Pipeline Review"
     difficulty: hard
     max_steps: 50
-    description: "Review 15 queries with prioritization, urgent flags, and strict penalties"
+    description: "Review 15 queries in batches with prioritization, urgent flags, adversarial queries, and information-gathering tradeoffs"
 action_space:
   type: object
   required: [action_type, query_id]
   properties:
     action_type:
       type: string
-      enum: [review, approve, reject, request_changes, skip]
+      enum: [review, approve, reject, request_changes, skip, request_schema, request_context]
     query_id:
       type: string
     verdict:
@@ -42,6 +43,9 @@ action_space:
       items:
         type: string
         enum: [sql_injection, performance, logic_bug, missing_index, n_plus_one, no_issues]
+    reasoning:
+      type: string
+      description: "Agent's explanation for its decision"
     suggested_fix:
       type: string
     confidence:
@@ -53,6 +57,7 @@ observation_space:
   properties:
     queries:
       type: array
+      description: "SQL queries to review. context and schema_hint may be empty until requested."
     current_step:
       type: integer
     task_id:
@@ -65,5 +70,8 @@ observation_space:
       type: string
     session_stats:
       type: object
+    review_history:
+      type: array
+      description: "Previous reviews made this episode"
     done:
       type: boolean

@@ -118,7 +118,7 @@ async def reset(request: Request):
                     "queries": [], "current_step": 0, "task_id": "single_review",
                     "reviewed_count": 0, "pending_count": 0,
                     "last_action_result": f"Reset error: {str(e)}",
-                    "session_stats": {}, "done": False
+                    "session_stats": {}, "review_history": [], "done": False
                 },
                 "info": {"error": str(e)}
             }
@@ -156,7 +156,7 @@ async def step(request: Request):
                     "queries": [], "current_step": 0, "task_id": "",
                     "reviewed_count": 0, "pending_count": 0,
                     "last_action_result": f"Step error: {error_msg}",
-                    "session_stats": {}, "done": False
+                    "session_stats": {}, "review_history": [], "done": False
                 },
                 "reward": 0.0,
                 "done": False,

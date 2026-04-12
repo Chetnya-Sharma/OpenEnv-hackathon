@@ -22,25 +22,25 @@ TASK_DEFINITIONS: Dict[str, TaskDefinition] = {
         max_steps=5,
         description="Review one SQL query for correctness, security, and performance",
         num_queries=1,
-        scoring_weights={"verdict": 0.6, "issue_detection": 0.4}
+        scoring_weights={"verdict": 0.50, "issue_detection": 0.30, "reasoning": 0.10, "fix_quality": 0.10}
     ),
     "batch_review": TaskDefinition(
         id="batch_review",
         name="Batch Query Review",
         difficulty="medium",
         max_steps=25,
-        description="Review 8 mixed SQL queries across all issue types",
+        description="Review 8 mixed SQL queries including adversarial edge cases",
         num_queries=8,
-        scoring_weights={"verdict": 0.5, "issue_detection": 0.3, "fix_quality": 0.2}
+        scoring_weights={"verdict": 0.40, "issue_detection": 0.25, "reasoning": 0.10, "fix_quality": 0.15, "efficiency": 0.10}
     ),
     "pipeline_review": TaskDefinition(
         id="pipeline_review",
         name="Production Pipeline Review",
         difficulty="hard",
         max_steps=50,
-        description="Review 15 queries with prioritization, urgent flags, and strict penalties",
+        description="Review 15 queries with prioritization, urgent flags, adversarial queries, and strict penalties",
         num_queries=15,
-        scoring_weights={"verdict": 0.35, "issue_detection": 0.25, "fix_quality": 0.20, "priority_handling": 0.20}
+        scoring_weights={"verdict": 0.30, "issue_detection": 0.20, "reasoning": 0.10, "fix_quality": 0.15, "priority_handling": 0.15, "efficiency": 0.10}
     ),
 }
 
@@ -53,6 +53,33 @@ def get_task_definitions() -> List[TaskDefinition]:
 def get_task(task_id: str) -> Optional[TaskDefinition]:
     """Return a specific task definition."""
     return TASK_DEFINITIONS.get(task_id)
+
+
+# ── Reasoning Quality Scorer ─────────────────────────────────────
+
+def _score_reasoning(reasoning: Optional[str], query: SQLQuery) -> float:
+    """Score reasoning quality by checking for relevant keyword mentions.
+    Returns 0.0-1.0 based on how many expected keywords appear."""
+    if not reasoning or len(reasoning.strip()) < 10:
+        return 0.0
+    reasoning_lower = reasoning.lower()
+    keywords = query.reasoning_keywords
+    if not keywords:
+        # No expected keywords defined — give credit for non-trivial reasoning
+        return 0.5 if len(reasoning.strip()) > 30 else 0.2
+    matches = sum(1 for kw in keywords if kw.lower() in reasoning_lower)
+    return min(1.0, matches / max(1, len(keywords) * 0.5))  # Need 50% of keywords for full score
+
+
+def _score_confidence(confidence: Optional[float], was_correct: bool) -> float:
+    """Brier-style score: reward calibrated confidence.
+    High confidence + correct = 1.0, high confidence + wrong = 0.0."""
+    if confidence is None:
+        return 0.5  # Neutral if not provided
+    if was_correct:
+        return confidence  # Higher confidence on correct = better
+    else:
+        return 1.0 - confidence  # Lower confidence on wrong = less bad
 
 
 # ── Dense Step Reward Computation ─────────────────────────────────
@@ -92,6 +119,10 @@ def compute_step_reward_single(action: SQLAction, query: SQLQuery) -> float:
         # Fix quality bonus
         if has_any_issue and action.suggested_fix and len(action.suggested_fix) > 20:
             reward += 0.10
+
+        # Reasoning bonus
+        reasoning_score = _score_reasoning(action.reasoning, query)
+        reward += reasoning_score * 0.08
 
     return reward
 
@@ -137,6 +168,10 @@ def compute_step_reward_batch(
         # Fix provided for rejected query
         if query.correct_verdict == "reject" and action.suggested_fix and len(action.suggested_fix) > 10:
             reward += 0.05
+
+        # Reasoning bonus
+        reasoning_score = _score_reasoning(action.reasoning, query)
+        reward += reasoning_score * 0.05
 
     return reward
 
@@ -191,6 +226,10 @@ def compute_step_reward_pipeline(
         if verdict == "reject" and action.suggested_fix and len(action.suggested_fix) >= 30:
             reward += 0.05
 
+        # Reasoning bonus
+        reasoning_score = _score_reasoning(action.reasoning, query)
+        reward += reasoning_score * 0.05
+
     return reward
 
 
@@ -218,14 +257,33 @@ def grade_single_review(action: SQLAction, query: SQLQuery) -> SQLReward:
         if "no_issues" in issues:
             issue_score = 1.0
 
-    final = (verdict_score * 0.6) + (issue_score * 0.4)
+    # Reasoning quality
+    reasoning_score = _score_reasoning(action.reasoning, query)
+
+    # Fix quality
+    fix_score = 0.0
+    has_any_issue = query.has_injection_risk or query.has_performance_issue or query.has_logic_bug
+    if has_any_issue and action.suggested_fix:
+        if len(action.suggested_fix) >= 30:
+            fix_score = 1.0
+        elif len(action.suggested_fix) >= 10:
+            fix_score = 0.5
+    elif not has_any_issue:
+        fix_score = 1.0  # No fix needed for safe queries
+
+    final = (verdict_score * 0.50) + (issue_score * 0.30) + (reasoning_score * 0.10) + (fix_score * 0.10)
     final = max(0.0, min(1.0, final))
 
     return SQLReward(
         value=final,
-        reason=f"Verdict {'correct' if verdict_score > 0 else 'wrong'}, issue detection {issue_score:.2f}",
+        reason=f"Verdict {'correct' if verdict_score > 0 else 'wrong'}, issues {issue_score:.2f}, reasoning {reasoning_score:.2f}, fix {fix_score:.2f}",
         partial_progress=final,
-        breakdown={"verdict": verdict_score * 0.6, "issue_detection": issue_score * 0.4}
+        breakdown={
+            "verdict": verdict_score * 0.50,
+            "issue_detection": issue_score * 0.30,
+            "reasoning": reasoning_score * 0.10,
+            "fix_quality": fix_score * 0.10,
+        }
     )
 
 
@@ -242,6 +300,7 @@ def grade_batch_review(
     total_issues = 0
     correctly_identified = 0
     fix_scores: List[float] = []
+    reasoning_scores: List[float] = []
 
     for qid, query in queries.items():
         # Count ground truth issues
@@ -279,27 +338,43 @@ def grade_batch_review(
                 else:
                     fix_scores.append(1.0)
 
+            # Reasoning quality
+            reasoning_scores.append(_score_reasoning(action.reasoning, query))
+
     verdict_accuracy = correct_verdicts / total_queries if total_queries > 0 else 0.0
     issue_detection_rate = correctly_identified / total_issues if total_issues > 0 else 0.0
     fix_quality = sum(fix_scores) / len(fix_scores) if fix_scores else 0.0
+    avg_reasoning = sum(reasoning_scores) / len(reasoning_scores) if reasoning_scores else 0.0
 
-    # Completion bonus
-    completion_bonus = 0.0
-    if len(reviewed_ids) >= total_queries and total_steps <= max_steps:
-        completion_bonus = 0.15
+    # Efficiency bonus: reviewed all queries in fewer steps
+    efficiency_score = 0.0
+    if len(reviewed_ids) >= total_queries:
+        if total_steps <= total_queries + 2:  # Near-optimal
+            efficiency_score = 1.0
+        elif total_steps <= total_queries * 2:
+            efficiency_score = 0.7
+        elif total_steps <= max_steps:
+            efficiency_score = 0.4
 
-    base = (verdict_accuracy * 0.5) + (issue_detection_rate * 0.3) + (fix_quality * 0.2)
-    final = max(0.0, min(1.0, base + completion_bonus))
+    base = (
+        verdict_accuracy * 0.40
+        + issue_detection_rate * 0.25
+        + avg_reasoning * 0.10
+        + fix_quality * 0.15
+        + efficiency_score * 0.10
+    )
+    final = max(0.0, min(1.0, base))
 
     return SQLReward(
         value=final,
-        reason=f"Verdict acc {verdict_accuracy:.2f}, issue detect {issue_detection_rate:.2f}, fix quality {fix_quality:.2f}",
+        reason=f"Verdict acc {verdict_accuracy:.2f}, issues {issue_detection_rate:.2f}, reasoning {avg_reasoning:.2f}, fixes {fix_quality:.2f}, efficiency {efficiency_score:.2f}",
         partial_progress=base,
         breakdown={
-            "verdict": verdict_accuracy * 0.5,
-            "issue_detection": issue_detection_rate * 0.3,
-            "fix_quality": fix_quality * 0.2,
-            "completion_bonus": completion_bonus
+            "verdict": verdict_accuracy * 0.40,
+            "issue_detection": issue_detection_rate * 0.25,
+            "reasoning": avg_reasoning * 0.10,
+            "fix_quality": fix_quality * 0.15,
+            "efficiency": efficiency_score * 0.10,
         }
     )
 
@@ -317,6 +392,7 @@ def grade_pipeline_review(
     total_issues = 0
     correctly_identified = 0
     fix_scores: List[float] = []
+    reasoning_scores: List[float] = []
     penalties = 0.0
 
     # Priority handling: fraction of urgent queries reviewed before non-urgent
@@ -324,7 +400,7 @@ def grade_pipeline_review(
     normal_ids = {qid for qid, q in queries.items() if not q.is_urgent}
 
     # Determine priority score from review order
-    first_normal_idx = len(review_order)  # default: all urgent reviewed first
+    first_normal_idx = len(review_order)
     for i, qid in enumerate(review_order):
         if qid in normal_ids:
             first_normal_idx = i
@@ -335,8 +411,7 @@ def grade_pipeline_review(
         if qid in urgent_ids and i < first_normal_idx:
             urgent_reviewed_before_normal += 1
         elif qid in urgent_ids:
-            # Count urgent queries reviewed at any point
-            urgent_reviewed_before_normal += 0.5  # partial credit
+            urgent_reviewed_before_normal += 0.5
 
     priority_score = urgent_reviewed_before_normal / len(urgent_ids) if urgent_ids else 1.0
     priority_score = min(1.0, priority_score)
@@ -376,40 +451,52 @@ def grade_pipeline_review(
                 else:
                     fix_scores.append(1.0)
 
+            # Reasoning quality
+            reasoning_scores.append(_score_reasoning(action.reasoning, query))
+
             # Penalty: approving urgent query with critical issues
             has_critical = query.has_injection_risk or query.has_logic_bug
             if query.is_urgent and has_critical and verdict == "approve":
-                penalties += 0.20
+                penalties += 0.15
 
             # Penalty: empty fix on reject
             if verdict == "reject" and (not action.suggested_fix or len(action.suggested_fix.strip()) == 0):
-                penalties += 0.15
+                penalties += 0.08
 
     # Penalty: skipped queries
-    penalties += len(skipped_ids) * 0.10
+    penalties += len(skipped_ids) * 0.05
 
     verdict_accuracy = correct_verdicts / total_queries if total_queries > 0 else 0.0
     issue_detection_rate = correctly_identified / total_issues if total_issues > 0 else 0.0
     fix_quality = sum(fix_scores) / len(fix_scores) if fix_scores else 0.0
+    avg_reasoning = sum(reasoning_scores) / len(reasoning_scores) if reasoning_scores else 0.0
+
+    # Efficiency: reviewed more queries = better
+    review_ratio = len(reviewed_ids) / total_queries if total_queries > 0 else 0.0
+    efficiency_score = review_ratio  # 1.0 if all reviewed
 
     base = (
-        verdict_accuracy * 0.35
-        + issue_detection_rate * 0.25
-        + fix_quality * 0.20
-        + priority_score * 0.20
+        verdict_accuracy * 0.30
+        + issue_detection_rate * 0.20
+        + avg_reasoning * 0.10
+        + fix_quality * 0.15
+        + priority_score * 0.15
+        + efficiency_score * 0.10
     )
 
     final = max(0.0, min(1.0, base - penalties))
 
     return SQLReward(
         value=final,
-        reason=f"Verdict {verdict_accuracy:.2f}, issues {issue_detection_rate:.2f}, fixes {fix_quality:.2f}, priority {priority_score:.2f}, penalties {penalties:.2f}",
+        reason=f"Verdict {verdict_accuracy:.2f}, issues {issue_detection_rate:.2f}, reasoning {avg_reasoning:.2f}, fixes {fix_quality:.2f}, priority {priority_score:.2f}, efficiency {efficiency_score:.2f}, penalties {penalties:.2f}",
         partial_progress=base,
         breakdown={
-            "verdict": verdict_accuracy * 0.35,
-            "issue_detection": issue_detection_rate * 0.25,
-            "fix_quality": fix_quality * 0.20,
-            "priority_handling": priority_score * 0.20,
-            "penalties": -penalties
+            "verdict": verdict_accuracy * 0.30,
+            "issue_detection": issue_detection_rate * 0.20,
+            "reasoning": avg_reasoning * 0.10,
+            "fix_quality": fix_quality * 0.15,
+            "priority_handling": priority_score * 0.15,
+            "efficiency": efficiency_score * 0.10,
+            "penalties": -penalties,
         }
     )

@@ -26,9 +26,9 @@ ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 BENCHMARK = "sql-review-env"
 
 TASKS = [
-    {"id": "single_review", "max_steps": 5, "max_reward": 1.5},
-    {"id": "batch_review", "max_steps": 25, "max_reward": 10.0},
-    {"id": "pipeline_review", "max_steps": 50, "max_reward": 18.0},
+    {"id": "single_review", "max_steps": 5},
+    {"id": "batch_review", "max_steps": 25},
+    {"id": "pipeline_review", "max_steps": 50},
 ]
 
 
@@ -56,9 +56,17 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 SYSTEM_PROMPT = textwrap.dedent("""
     You are a senior data engineer reviewing SQL queries for a production database.
     For each query, you must:
-    1. Identify any SQL injection risks, performance issues, or logic bugs
-    2. Decide whether to approve or reject the query
-    3. If rejecting, provide a specific suggested fix
+    1. Analyze the SQL, its production context, and table schema
+    2. Identify any SQL injection risks, performance issues, or logic bugs
+    3. Decide whether to approve or reject the query
+    4. Explain your reasoning
+    5. If rejecting, provide a specific suggested fix
+
+    Be careful with adversarial queries:
+    - A parameterized query ($1, $2) with a SQL comment (--) is NOT injection
+    - A string literal containing SQL keywords (like 'DROP TABLE') is NOT injection
+    - Watch for subtle bugs: wrong JOIN conditions, race conditions, impossible WHERE clauses
+    - Check for missing status checks, off-by-one errors, and HAVING/ORDER BY clause ordering
 
     Respond ONLY with a valid JSON object in this exact format:
     {
@@ -66,7 +74,8 @@ SYSTEM_PROMPT = textwrap.dedent("""
       "query_id": "<id>",
       "verdict": "approve" or "reject",
       "issues_found": ["sql_injection", "performance", "logic_bug", "missing_index", "n_plus_one", "no_issues"],
-      "suggested_fix": "<rewritten SQL or empty string>",
+      "reasoning": "<brief explanation of why you made this decision>",
+      "suggested_fix": "<rewritten SQL or empty string if approving>",
       "confidence": 0.0 to 1.0
     }
     Only include actual issues found in issues_found array.
@@ -95,19 +104,21 @@ def get_agent_action(client: OpenAI, observation: dict, history: List[str]) -> d
 
     query = pending_queries[0]
     urgent_flag = " [URGENT - PRIORITY]" if query.get("is_urgent", False) else ""
+    context_line = f"\nContext: {query['context']}" if query.get("context") else ""
+    schema_line = f"\nSchema: {query['schema_hint']}" if query.get("schema_hint") else ""
 
     user_prompt = f"""
 Review this SQL query:{urgent_flag}
 Query ID: {query['query_id']}
 SQL: {query['sql']}
 Database: {query['database']}
-Query Type: {query['query_type']}
+Query Type: {query['query_type']}{context_line}{schema_line}
 Step: {observation['current_step']}
 Already reviewed: {observation.get('reviewed_count', 0)}
 Pending: {observation.get('pending_count', 0)}
 
 Analyze for SQL injection risks, performance issues, and logic bugs.
-Respond with JSON action only.
+Provide your reasoning, then respond with JSON action only.
 """
     try:
         completion = client.chat.completions.create(
@@ -117,7 +128,7 @@ Respond with JSON action only.
                 {"role": "user", "content": user_prompt.strip()},
             ],
             temperature=0.1,
-            max_tokens=300,
+            max_tokens=500,
             stream=False,
         )
         text = (completion.choices[0].message.content or "").strip()
@@ -132,6 +143,7 @@ Respond with JSON action only.
             "query_id": query["query_id"],
             "verdict": "reject",
             "issues_found": ["no_issues"],
+            "reasoning": "LLM error fallback — defaulting to reject for safety",
             "suggested_fix": "",
             "confidence": 0.5,
         }
@@ -141,7 +153,6 @@ async def run_task(task: dict) -> float:
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     task_id = task["id"]
     max_steps = task["max_steps"]
-    max_reward = task["max_reward"]
 
     rewards: List[float] = []
     steps_taken = 0
@@ -190,12 +201,12 @@ async def run_task(task: dict) -> float:
             if done:
                 break
 
-        # Use grader's final score if available, otherwise normalize step rewards
+        # Use grader's final score (deterministic, 0.0-1.0)
         if final_grade_score is not None:
             score = min(max(final_grade_score, 0.0), 1.0)
         else:
-            score = sum(rewards) / max_reward if max_reward > 0 else 0.0
-            score = min(max(score, 0.0), 1.0)
+            # Fallback: normalize cumulative step rewards
+            score = min(max(sum(rewards), 0.0), 1.0)
         success = score >= 0.5
 
     except Exception as e:

@@ -82,8 +82,19 @@ agenthub/agents/youtube/db
 memory/test_credentials.md
 
 # Mobile development
-android-sdk/-e 
+android-sdk/-e
 # Environment files
 *.env
 *.env.*
+
+# Non-submission files
+INCIDENT_COMMANDER_BLUEPRINT.md
+test_result.md
+design_guidelines.json
+memory/PRD.md
+backend/
+frontend/
+test_reports/
+tests/
+backend_test.py
 

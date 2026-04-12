@@ -11,11 +11,14 @@ class SQLQuery(BaseModel):
     submitted_by: str
     database: str
     query_type: Literal["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP"]
+    context: str = ""  # Production context (e.g., "Payment service - checkout endpoint")
+    schema_hint: str = ""  # Relevant table schema (e.g., "users(id, name, email, active)")
     has_injection_risk: bool = False
     has_performance_issue: bool = False
     has_logic_bug: bool = False
     correct_verdict: Literal["approve", "reject"] = "approve"
-    is_urgent: bool = False  # Used in pipeline_review task
+    is_urgent: bool = False
+    reasoning_keywords: List[str] = []  # Keywords expected in agent reasoning
 
 
 class SQLQueryPublic(BaseModel):
@@ -25,6 +28,8 @@ class SQLQueryPublic(BaseModel):
     submitted_by: str
     database: str
     query_type: Literal["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP"]
+    context: str = ""
+    schema_hint: str = ""
     is_urgent: bool = False
 
 
@@ -37,12 +42,16 @@ class SQLObservation(BaseModel):
     pending_count: int
     last_action_result: str
     session_stats: Dict[str, Any]
+    review_history: List[Dict[str, Any]] = []  # Previous reviews this episode
     done: bool
 
 
 class SQLAction(BaseModel):
     """Action the agent takes on a query."""
-    action_type: Literal["review", "approve", "reject", "request_changes", "skip"]
+    action_type: Literal[
+        "review", "approve", "reject", "request_changes", "skip",
+        "request_schema", "request_context",
+    ]
     query_id: str
     verdict: Optional[Literal["approve", "reject"]] = None
     issues_found: Optional[List[Literal[
@@ -50,6 +59,7 @@ class SQLAction(BaseModel):
         "missing_index", "n_plus_one", "no_issues"
     ]]] = None
     suggested_fix: Optional[str] = None
+    reasoning: Optional[str] = None  # Why the agent made this decision
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 
